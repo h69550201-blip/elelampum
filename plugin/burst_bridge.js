@@ -287,9 +287,17 @@
         style.textContent = css;
         document.head.appendChild(style);
 
-        if (Lampa.Storage.get('burst_bridge_providers', '') === undefined ||
-            Lampa.Storage.get('burst_bridge_providers', '') === 'undefined') {
+        var prov = Lampa.Storage.get('burst_bridge_providers');
+        if (!prov || prov === 'undefined' || prov === undefined || prov === 'null') {
             Lampa.Storage.set('burst_bridge_providers', '');
+        }
+
+        if (!Lampa.Storage.get('burst_bridge_url')) {
+            Lampa.Storage.set('burst_bridge_url', '');
+        }
+
+        if (!Lampa.Storage.get('burst_bridge_timeout')) {
+            Lampa.Storage.set('burst_bridge_timeout', 15);
         }
 
         if (Lampa.SettingsApi) {
