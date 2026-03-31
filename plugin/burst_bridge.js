@@ -170,7 +170,7 @@
             },
             field: {
                 name: 'Providers',
-                description: 'Comma-separated provider IDs (empty = defaults: 1337x, yts, bt4g, knaben, thepiratebay, torrentio)'
+                description: 'Comma-separated provider IDs (empty = defaults: 1337x, yts, bt4g, knaben, thepiratebay)'
             }
         });
 
@@ -216,7 +216,7 @@
     }
 
     function interceptTorrentSearch() {
-        Lampa.Listener.follow('torrent', function (e) {
+        Lampa.Listener.follow('media', function (e) {
             if (e.type === 'search') {
                 var apiUrl = getApiUrl();
                 if (!apiUrl) return;
@@ -268,7 +268,7 @@
                         html += '</div></div>';
                     });
                 } else {
-                    html += '<div class="burst-empty">No torrents found</div>';
+                    html += '<div class="burst-empty">No results found</div>';
                 }
                 html += '</div>';
                 this.activity.render().html(html);

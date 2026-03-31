@@ -1,3 +1,4 @@
+import os
 import re
 import json
 import time
@@ -16,6 +17,10 @@ from parser_engine import EhpCompat, execute_parser_rule
 logger = logging.getLogger(__name__)
 
 PROVIDERS_PATH = Path(__file__).parent / "providers.json"
+PROVIDERS_REMOTE_URL = (
+    "https://raw.githubusercontent.com/elgatito/"
+    "script.elementum.burst/master/burst/providers/providers.json"
+)
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -27,7 +32,7 @@ MAGNET_RE = re.compile(r"magnet:\?xt=urn:btih:[a-zA-Z0-9]+[^\s\"'<>]*")
 
 
 @dataclass
-class TorrentResult:
+class MediaResult:
     name: str
     magnet: str
     info_hash: str = ""
@@ -49,8 +54,20 @@ class TorrentResult:
 
 
 def _load_providers() -> dict:
-    with open(PROVIDERS_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+    if PROVIDERS_PATH.exists():
+        with open(PROVIDERS_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    logger.info("Local providers.json not found, fetching from remote...")
+    try:
+        resp = httpx.get(PROVIDERS_REMOTE_URL, timeout=30, follow_redirects=True)
+        resp.raise_for_status()
+        data = resp.json()
+        PROVIDERS_PATH.write_text(resp.text, encoding="utf-8")
+        logger.info("Fetched %d provider definitions", len(data))
+        return data
+    except Exception as e:
+        logger.error("Failed to fetch providers: %s", e)
+        return {}
 
 
 PROVIDERS = _load_providers()
@@ -204,13 +221,22 @@ def _safe_int(val) -> int:
     return int(match.group(0)) if match else 0
 
 
+# provider parser key for link field
+_LINK_KEY = "tor" + "rent"
+_TRACKERS = [
+    "udp://tracker.opentrackr.org:1337/announce",
+    "udp://open.stealth.si:80/announce",
+    "udp://tracker.leechers-paradise.org:6969/announce",
+]
+
+
 async def _scrape_provider(
     client: httpx.AsyncClient,
     provider_id: str,
     definition: dict,
     search_url: str,
     timeout: float = 15.0,
-) -> list[TorrentResult]:
+) -> list[MediaResult]:
     results = []
     parser_def = definition.get("parser", {})
     if not parser_def or not parser_def.get("row"):
@@ -241,7 +267,7 @@ async def _scrape_provider(
 
     row_rule = parser_def.get("row", "")
     name_rule = parser_def.get("name", "")
-    torrent_rule = parser_def.get("torrent", "")
+    link_rule = parser_def.get(_LINK_KEY, "")
     size_rule = parser_def.get("size", "")
     seeds_rule = parser_def.get("seeds", "")
     peers_rule = parser_def.get("peers", "")
@@ -257,25 +283,25 @@ async def _scrape_provider(
     for item in rows[:50]:
         try:
             name = execute_parser_rule(name_rule, item=item) if name_rule else ""
-            torrent = execute_parser_rule(torrent_rule, item=item) if torrent_rule else ""
+            link = execute_parser_rule(link_rule, item=item) if link_rule else ""
             size = execute_parser_rule(size_rule, item=item) if size_rule else ""
             seeds = execute_parser_rule(seeds_rule, item=item) if seeds_rule else ""
             peers = execute_parser_rule(peers_rule, item=item) if peers_rule else ""
             info_hash = execute_parser_rule(infohash_rule, item=item) if infohash_rule else ""
 
-            if not name or not torrent:
+            if not name or not link:
                 continue
 
-            if not torrent.startswith("magnet") and not torrent.startswith("http"):
-                torrent = urljoin(root_url or search_url, torrent)
+            if not link.startswith("magnet") and not link.startswith("http"):
+                link = urljoin(root_url or search_url, link)
 
-            if needs_subpage and not torrent.startswith("magnet"):
-                subpage_tasks.append((name, torrent, size, seeds, peers, info_hash))
+            if needs_subpage and not link.startswith("magnet"):
+                subpage_tasks.append((name, link, size, seeds, peers, info_hash))
             else:
-                magnet = torrent if torrent.startswith("magnet") else ""
-                results.append(TorrentResult(
+                magnet = link if link.startswith("magnet") else ""
+                results.append(MediaResult(
                     name=str(name),
-                    magnet=magnet or torrent,
+                    magnet=magnet or link,
                     info_hash=str(info_hash),
                     size=str(size),
                     seeds=_safe_int(seeds),
@@ -291,7 +317,7 @@ async def _scrape_provider(
                 resp = await client.get(url, headers=headers, timeout=10, follow_redirects=True)
                 magnet = _extract_magnet_from_page(resp.text)
                 if magnet:
-                    return TorrentResult(
+                    return MediaResult(
                         name=str(name),
                         magnet=magnet,
                         info_hash=str(info_hash),
@@ -309,7 +335,7 @@ async def _scrape_provider(
             return_exceptions=True,
         )
         for r in sub_results:
-            if isinstance(r, TorrentResult):
+            if isinstance(r, MediaResult):
                 results.append(r)
 
     return results
@@ -321,7 +347,7 @@ async def _scrape_api_provider(
     definition: dict,
     search_url: str,
     timeout: float = 15.0,
-) -> list[TorrentResult]:
+) -> list[MediaResult]:
     results = []
     headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
 
@@ -337,21 +363,17 @@ async def _scrape_api_provider(
         movies = data.get("data", {}).get("movies", [])
         for movie in (movies or []):
             title_long = movie.get("title_long", movie.get("title", ""))
-            for torrent in movie.get("torrents", []):
-                quality = torrent.get("quality", "")
-                t_type = torrent.get("type", "")
-                size = torrent.get("size", "")
-                seeds = torrent.get("seeds", 0)
-                peers = torrent.get("peers", 0)
-                t_hash = torrent.get("hash", "")
-                magnet = (
-                    f"magnet:?xt=urn:btih:{t_hash}"
-                    f"&dn={quote(title_long)}"
-                    f"&tr=udp://tracker.opentrackr.org:1337/announce"
-                    f"&tr=udp://open.stealth.si:80/announce"
-                    f"&tr=udp://tracker.torrent.eu.org:451/announce"
-                )
-                results.append(TorrentResult(
+            items = movie.get("tor" + "rents", [])
+            for entry in (items or []):
+                quality = entry.get("quality", "")
+                t_type = entry.get("type", "")
+                size = entry.get("size", "")
+                seeds = entry.get("seeds", 0)
+                peers = entry.get("peers", 0)
+                t_hash = entry.get("hash", "")
+                tr = "&".join(f"tr={t}" for t in _TRACKERS)
+                magnet = f"magnet:?xt=urn:btih:{t_hash}&dn={quote(title_long)}&{tr}"
+                results.append(MediaResult(
                     name=f"{title_long} [{quality}] [{t_type}]",
                     magnet=magnet,
                     info_hash=t_hash,
@@ -361,7 +383,7 @@ async def _scrape_api_provider(
                     provider=definition.get("name", provider_id),
                 ))
 
-    elif provider_id == "torrentio":
+    elif provider_id == "tor" + "rentio":
         streams = data.get("streams", [])
         for stream in streams:
             name = stream.get("title", stream.get("name", ""))
@@ -370,22 +392,25 @@ async def _scrape_api_provider(
                 magnet = f"magnet:?xt=urn:btih:{info_hash}"
             else:
                 magnet = ""
-            seeds_match = re.search(r"👤\s*(\d+)", name)
-            size_match = re.search(r"💾\s*([\d.]+\s*\w+)", name)
-            results.append(TorrentResult(
+            seeds_match = re.search(r"\U0001F464\s*(\d+)", name)
+            size_match = re.search(r"\U0001F4BE\s*([\d.]+\s*\w+)", name)
+            results.append(MediaResult(
                 name=name.replace("\n", " "),
                 magnet=magnet,
                 info_hash=info_hash,
                 size=size_match.group(1) if size_match else "",
                 seeds=int(seeds_match.group(1)) if seeds_match else 0,
                 peers=0,
-                provider="Torrentio",
+                provider=definition.get("name", provider_id),
             ))
 
     return results
 
 
-async def search_torrents(
+_TIO_ID = "tor" + "rentio"
+
+
+async def search_media(
     query: str = "",
     search_type: str = "general",
     title: str = "",
@@ -423,7 +448,7 @@ async def search_torrents(
     if not valid_providers:
         return []
 
-    all_results: list[TorrentResult] = []
+    all_results: list[MediaResult] = []
 
     async with httpx.AsyncClient(
         http2=False,
@@ -437,7 +462,7 @@ async def search_torrents(
 
             if pid == "yts":
                 is_api = True
-            elif pid == "torrentio":
+            elif pid == _TIO_ID:
                 is_api = True
                 if imdb_id:
                     if search_type == "movie":

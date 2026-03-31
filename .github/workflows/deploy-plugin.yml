@@ -53,7 +53,7 @@ jobs:
           <head><title>Burst Bridge — Lampa Plugin</title></head>
           <body>
             <h1>Burst Bridge</h1>
-            <p>Lampa TV torrent search plugin powered by Elementum Burst providers.</p>
+            <p>Lampa TV media search plugin powered by Elementum Burst providers.</p>
             <h3>Plugin URLs</h3>
             <ul>
               <li><a href="burst_bridge.js">burst_bridge.js</a> (full)</li>

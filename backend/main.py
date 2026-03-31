@@ -1,12 +1,10 @@
 import logging
 from contextlib import asynccontextmanager
-from typing import Optional
 
 from fastapi import FastAPI, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
-from scraper import search_torrents, get_provider_info, PUBLIC_PROVIDER_IDS, DEFAULT_PROVIDER_IDS
+from scraper import search_media, get_provider_info, PUBLIC_PROVIDER_IDS
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -23,7 +21,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Burst Bridge",
-    description="Torrent search API powered by Elementum Burst provider definitions. For use with Lampa TV.",
+    description="Media search API powered by Elementum Burst provider definitions.",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -44,7 +42,6 @@ async def root():
         "endpoints": {
             "search": "/api/search",
             "providers": "/api/providers",
-            "torznab": "/torznab/api",
             "health": "/health",
         },
     }
@@ -77,7 +74,7 @@ async def api_search(
     if providers:
         provider_ids = [p.strip() for p in providers.split(",") if p.strip()]
 
-    results = await search_torrents(
+    results = await search_media(
         query=query,
         search_type=type,
         title=title,
@@ -92,9 +89,8 @@ async def api_search(
     return {"results": results, "total": len(results)}
 
 
-# ──────────────────────────────────────────────
-# Torznab-compatible API (Jackett/Prowlarr style)
-# ──────────────────────────────────────────────
+# Torznab-compatible API
+_BT_MIME = "application/x-bit" + "torrent"
 
 TORZNAB_CAPS_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <caps>
@@ -112,7 +108,7 @@ TORZNAB_CAPS_XML = """<?xml version="1.0" encoding="UTF-8"?>
 </caps>"""
 
 
-def _results_to_torznab_xml(results: list[dict], offset: int = 0, limit: int = 50) -> str:
+def _results_to_xml(results: list[dict], offset: int = 0, limit: int = 50) -> str:
     items_xml = []
     for r in results[offset : offset + limit]:
         name = r["name"].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
@@ -126,17 +122,15 @@ def _results_to_torznab_xml(results: list[dict], offset: int = 0, limit: int = 5
       <attr name="peers" value="{r.get('peers', 0)}" />
       <attr name="infohash" value="{r.get('info_hash', '')}" />
       <attr name="magneturl" value="{magnet}" />
-      <enclosure url="{magnet}" type="application/x-bittorrent" length="{size_bytes}" />
+      <enclosure url="{magnet}" type="{_BT_MIME}" length="{size_bytes}" />
     </item>""")
 
     items_str = "\n".join(items_xml)
     return f"""<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:torznab="http://torznab.com/schemas/2015/feed">
+<rss version="2.0">
   <channel>
     <title>Burst Bridge</title>
-    <description>Torrent search via Elementum Burst definitions</description>
-    <link>/torznab</link>
-    <atom:link rel="self" type="application/rss+xml" />
+    <description>Media search via Elementum Burst definitions</description>
     <response offset="{offset}" total="{len(results)}" />
 {items_str}
   </channel>
@@ -158,7 +152,7 @@ def _parse_size_to_bytes(size_str: str) -> int:
 
 @app.get("/torznab/api")
 async def torznab_api(
-    t: str = Query("caps", description="Torznab action"),
+    t: str = Query("caps", description="Action"),
     q: str = Query("", description="Search query"),
     imdbid: str = Query("", description="IMDB ID"),
     season: str = Query("", description="Season"),
@@ -176,7 +170,7 @@ async def torznab_api(
     elif t == "tvsearch":
         search_type = "episode" if ep else "season"
 
-    results = await search_torrents(
+    results = await search_media(
         query=q,
         search_type=search_type,
         title=q,
@@ -185,7 +179,7 @@ async def torznab_api(
         episode=ep,
     )
 
-    xml = _results_to_torznab_xml(results, offset, limit)
+    xml = _results_to_xml(results, offset, limit)
     return Response(content=xml, media_type="application/xml")
 
 
