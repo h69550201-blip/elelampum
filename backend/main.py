@@ -1,7 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Query, Response
+from fastapi import FastAPI, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from scraper import search_media, get_provider_info, PUBLIC_PROVIDER_IDS
@@ -180,6 +180,51 @@ async def torznab_api(
     )
 
     xml = _results_to_xml(results, offset, limit)
+    return Response(content=xml, media_type="application/xml")
+
+
+# Jackett-compatible route (what Lampa actually calls)
+@app.get("/api/v2.0/indexers/all/results")
+@app.get("/torznab/api/api/v2.0/indexers/all/results")
+async def jackett_api(request: Request):
+    params = dict(request.query_params)
+
+    query = params.get("Query", params.get("query", ""))
+    title = params.get("title", "")
+    title_original = params.get("title_original", "")
+    year = params.get("year", "")
+    season = params.get("season", "")
+    episode = params.get("episode", "")
+    is_serial = params.get("is_serial", "0")
+
+    categories = params.get("Category[]", params.get("Category", ""))
+
+    search_type = "general"
+    if is_serial == "1":
+        if episode:
+            search_type = "episode"
+        elif season:
+            search_type = "season"
+        else:
+            search_type = "episode"
+    elif categories and "2000" in str(categories):
+        search_type = "movie"
+    elif categories and "5000" in str(categories):
+        search_type = "episode"
+
+    search_query = title_original or title or query
+
+    results = await search_media(
+        query=search_query,
+        search_type=search_type,
+        title=title or title_original or query,
+        original_title=title_original or title or query,
+        year=year,
+        season=season,
+        episode=episode,
+    )
+
+    xml = _results_to_xml(results, 0, 100)
     return Response(content=xml, media_type="application/xml")
 
 
