@@ -1,0 +1,12 @@
+{
+    "$schema": "https://railway.app/railway.schema.json",
+    "build": {
+        "dockerfilePath": "lampa_extension/Dockerfile",
+        "buildContext": "lampa_extension"
+    },
+    "deploy": {
+        "startCommand": "uvicorn main:app --host 0.0.0.0 --port $PORT",
+        "restartPolicyType": "ON_FAILURE",
+        "restartPolicyMaxRetries": 10
+    }
+}

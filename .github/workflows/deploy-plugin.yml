@@ -1,0 +1,93 @@
+name: Deploy Lampa Plugin
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'plugin/**'
+      - '.github/workflows/deploy-plugin.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build plugin
+        run: |
+          mkdir -p dist
+          
+          # Copy original JS
+          cp plugin/burst_bridge.js dist/burst_bridge.js
+          
+          # Create minified version
+          npx --yes terser plugin/burst_bridge.js \
+            --compress --mangle \
+            --output dist/burst_bridge.min.js
+          
+          # Generate version info
+          echo "{
+            \"name\": \"burst_bridge\",
+            \"version\": \"$(date +%Y.%m.%d)-$(echo $GITHUB_SHA | cut -c1-7)\",
+            \"updated\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",
+            \"files\": {
+              \"full\": \"burst_bridge.js\",
+              \"min\": \"burst_bridge.min.js\"
+            }
+          }" > dist/version.json
+          
+          # Index page
+          cat > dist/index.html <<'INDEXEOF'
+          <!DOCTYPE html>
+          <html>
+          <head><title>Burst Bridge — Lampa Plugin</title></head>
+          <body>
+            <h1>Burst Bridge</h1>
+            <p>Lampa TV torrent search plugin powered by Elementum Burst providers.</p>
+            <h3>Plugin URLs</h3>
+            <ul>
+              <li><a href="burst_bridge.js">burst_bridge.js</a> (full)</li>
+              <li><a href="burst_bridge.min.js">burst_bridge.min.js</a> (minified)</li>
+              <li><a href="version.json">version.json</a></li>
+            </ul>
+            <h3>Setup</h3>
+            <p>Add this URL as a plugin in Lampa:</p>
+            <code id="url"></code>
+            <script>
+              document.getElementById('url').textContent = 
+                window.location.href.replace('index.html','') + 'burst_bridge.min.js';
+            </script>
+          </body>
+          </html>
+          INDEXEOF
+          
+          echo "Built files:"
+          ls -la dist/
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
