@@ -30,13 +30,13 @@ jobs:
       - name: Build plugin
         run: |
           mkdir -p dist
-          
+
           cp plugin/burst_bridge.js dist/burst_bridge.js
-          
+
           npx --yes terser plugin/burst_bridge.js \
             --compress --mangle \
             --output dist/burst_bridge.min.js
-          
+
           echo "{
             \"name\": \"burst_bridge\",
             \"version\": \"$(date +%Y.%m.%d)-$(echo $GITHUB_SHA | cut -c1-7)\",
@@ -46,8 +46,8 @@ jobs:
               \"min\": \"burst_bridge.min.js\"
             }
           }" > dist/version.json
-          
-          cat > dist/index.html <<'EOF'
+
+          cat > dist/index.html <<'HTMLEOF'
           <!DOCTYPE html>
           <html>
           <head><title>Burst Bridge — Lampa Plugin</title></head>
@@ -69,8 +69,8 @@ jobs:
             </script>
           </body>
           </html>
-          EOF
-          
+          HTMLEOF
+
           ls -la dist/
 
       - name: Deploy to gh-pages branch
@@ -80,3 +80,15 @@ jobs:
           publish_dir: ./dist
           publish_branch: gh-pages
           force_orphan: true
+
+      - name: Configure Pages source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Switch Pages to serve from gh-pages branch
+          gh api repos/${{ github.repository }}/pages \
+            -X PUT \
+            -f source[branch]=gh-pages \
+            -f source[path]=/ \
+            -f build_type=legacy \
+            2>/dev/null || true
