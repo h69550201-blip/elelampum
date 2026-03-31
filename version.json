@@ -1,0 +1,9 @@
+{
+  "name": "burst_bridge",
+  "version": "2026.03.31-eb919d5",
+  "updated": "2026-03-31T13:04:59Z",
+  "files": {
+    "full": "burst_bridge.js",
+    "min": "burst_bridge.min.js"
+  }
+}

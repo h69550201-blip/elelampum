@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head><title>Burst Bridge — Lampa Plugin</title></head>
+<body>
+  <h1>Burst Bridge</h1>
+  <p>Lampa TV media search plugin powered by Elementum Burst providers.</p>
+  <h3>Plugin URLs</h3>
+  <ul>
+    <li><a href="burst_bridge.js">burst_bridge.js</a> (full)</li>
+    <li><a href="burst_bridge.min.js">burst_bridge.min.js</a> (minified)</li>
+    <li><a href="version.json">version.json</a></li>
+  </ul>
+  <h3>Setup</h3>
+  <p>Add this URL as a plugin in Lampa:</p>
+  <code id="url"></code>
+  <script>
+    document.getElementById('url').textContent =
+      window.location.href.replace('index.html','') + 'burst_bridge.min.js';
+  </script>
+</body>
+</html>
