@@ -7,7 +7,9 @@
     var DEFAULT_API_URL = '';
 
     function getApiUrl() {
-        return Lampa.Storage.get('burst_bridge_url', '') || DEFAULT_API_URL;
+        var url = Lampa.Storage.get('burst_bridge_url', '') || DEFAULT_API_URL;
+        if (url && url.indexOf('://') === -1) url = 'http://' + url;
+        return url.replace(/\/$/, '');
     }
 
     function setApiUrl(url) {
@@ -15,7 +17,9 @@
     }
 
     function getEnabledProviders() {
-        return Lampa.Storage.get('burst_bridge_providers', '');
+        var val = Lampa.Storage.get('burst_bridge_providers', '');
+        if (!val || val === 'undefined') return '';
+        return val;
     }
 
     function setEnabledProviders(val) {
@@ -282,6 +286,11 @@
         var style = document.createElement('style');
         style.textContent = css;
         document.head.appendChild(style);
+
+        if (Lampa.Storage.get('burst_bridge_providers', '') === undefined ||
+            Lampa.Storage.get('burst_bridge_providers', '') === 'undefined') {
+            Lampa.Storage.set('burst_bridge_providers', '');
+        }
 
         if (Lampa.SettingsApi) {
             Lampa.SettingsApi.addComponent({
