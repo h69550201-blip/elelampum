@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,15 +31,12 @@ jobs:
         run: |
           mkdir -p dist
           
-          # Copy original JS
           cp plugin/burst_bridge.js dist/burst_bridge.js
           
-          # Create minified version
           npx --yes terser plugin/burst_bridge.js \
             --compress --mangle \
             --output dist/burst_bridge.min.js
           
-          # Generate version info
           echo "{
             \"name\": \"burst_bridge\",
             \"version\": \"$(date +%Y.%m.%d)-$(echo $GITHUB_SHA | cut -c1-7)\",
@@ -50,8 +47,7 @@ jobs:
             }
           }" > dist/version.json
           
-          # Index page
-          cat > dist/index.html <<'INDEXEOF'
+          cat > dist/index.html <<'EOF'
           <!DOCTYPE html>
           <html>
           <head><title>Burst Bridge — Lampa Plugin</title></head>
@@ -68,26 +64,19 @@ jobs:
             <p>Add this URL as a plugin in Lampa:</p>
             <code id="url"></code>
             <script>
-              document.getElementById('url').textContent = 
+              document.getElementById('url').textContent =
                 window.location.href.replace('index.html','') + 'burst_bridge.min.js';
             </script>
           </body>
           </html>
-          INDEXEOF
+          EOF
           
-          echo "Built files:"
           ls -la dist/
 
-      - uses: actions/upload-pages-artifact@v3
+      - name: Deploy to gh-pages branch
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: dist
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          publish_branch: gh-pages
+          force_orphan: true
